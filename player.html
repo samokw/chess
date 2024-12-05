@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Your Turn - Hostage Chess</title>
+    <!-- Include Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Include Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.1/font/bootstrap-icons.css">
+    <!-- Include Chessboard CSS -->
+    <link rel="stylesheet" href="/css/chessboard-1.0.0.css">
+    <!-- Include Custom CSS -->
+    <link rel="stylesheet" href="/css/styles.css">
+    <style>
+        body {
+            background-color: #f8f9fa;
+        }
+        .container {
+            max-width: 800px;
+            margin-top: 50px;
+        }
+        #chessboard {
+            margin: 0 auto;
+        }
+        .time-display {
+            font-size: 1.2em;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Your Turn</h1>
+
+    <div id="board-container">
+        <div id="chessboard" class="chessboard"></div> <!-- Chessboard will appear here -->
+    </div>
+
+    <p class="lead time-display">
+        Your time remaining: <span id="your-time">Loading...</span><br>
+        Opponent's time remaining: <span id="opponent-time">Loading...</span>
+    </p>
+
+    <button id="done-button" class="btn btn-success btn-custom">
+        <i class="bi bi-check-circle"></i> Done
+    </button>
+</div>
+
+<!-- Include jQuery (required by Chessboard.js) -->
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<!-- Include Bootstrap JS Bundle -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+<!-- Include Chessboard JS -->
+<script src="/js/chessboard-1.0.0.js"></script>
+<script>
+    // Template variables injected by the server
+    var game_no = '{{ game_no }}';
+    var turn_no = '{{ turn_no }}';
+    var handle = '{{ handle }}';
+    var white_handle = '{{ white_handle }}';
+    var black_handle = '{{ black_handle }}';
+    var board_state_efen = '{{ board_state }}'; // Complete EFEN string
+    var standard_fen = '{{ standard_fen }}'; // Piece placement
+    var active_color = '{{ active_color }}'; // 'w' or 'b'
+    var castling = '{{ castling }}'; // e.g., 'KQkq'
+    var enpassant = '{{ enpassant }}'; // e.g., '-'
+    var halfmove_clock = '{{ halfmove_clock }}'; // e.g., '0'
+    var fullmove_number = '{{ fullmove_number }}'; // e.g., '1'
+    var white_prisoners = '{{ white_prisoners }}'; // Hostage Chess specific
+    var black_prisoners = '{{ black_prisoners }}'; // Hostage Chess specific
+    var white_holdable = '{{ white_holdable }}'; // Hostage Chess specific
+    var black_holdable = '{{ black_holdable }}'; // Hostage Chess specific
+    white_prisoners = white_prisoners || '-';
+    black_prisoners = black_prisoners || '-';
+    white_holdable = white_holdable || '-';
+    black_holdable = black_holdable || '-';
+
+    // Determine player's color
+    function getPlayerColor() {
+        if (handle.toLowerCase() === white_handle.toLowerCase()) {
+            return 'W';
+        } else if (handle.toLowerCase() === black_handle.toLowerCase()) {
+            return 'B';
+        }
+        return 'W'; // Default to White
+    }
+
+    var playerColor = getPlayerColor();
+
+    // Initialize the chessboard with standard FEN
+    var board = Chessboard('chessboard', {
+        draggable: true,
+        dropOffBoard: 'snapback',
+        position: standard_fen || 'start',
+        onDrop: onDrop
+    });
+
+    function onDrop(source, target, piece, newPos, oldPos, orientation) {
+        // Update the piece placement field
+        var newFenPosition = Chessboard.objToFen(newPos);
+    
+        // Update the active color
+        switchActiveColor();
+    
+        // Update halfmove clock and fullmove number
+        var isPawnMoveOrCapture = detectPawnMoveOrCapture(source, target, piece, newPos);
+        updateMoveCounters(isPawnMoveOrCapture);
+    
+        // Since castling and en passant are not allowed, we can set them to '-'
+        castling = '-';
+        enpassant = '-';
+    
+        // Update the board position
+        board.position(newFenPosition);
+    }
+
+    function switchActiveColor() {
+        active_color = (active_color === 'w') ? 'b' : 'w';
+    }
+
+    function detectPawnMoveOrCapture(source, target, piece, newPos) {
+        // Check if the piece is a pawn
+        var isPawn = piece.toLowerCase().startsWith('p');
+    
+        // Check if a capture has occurred
+        var isCapture = newPos[target] && newPos[target].toLowerCase() !== piece.toLowerCase();
+    
+        return isPawn || isCapture;
+    }
+
+    function updateMoveCounters(isPawnMoveOrCapture) {
+        if (isPawnMoveOrCapture) {
+            halfmove_clock = '0';
+        } else {
+            halfmove_clock = (parseInt(halfmove_clock) + 1).toString();
+        }
+    
+        if (active_color === 'w') {
+            // Increment fullmove number after Black's move
+            fullmove_number = (parseInt(fullmove_number) + 1).toString();
+        }
+    }          
+
+    // Function to format time in mm:ss
+    function formatTime(seconds) {
+        var minutes = Math.floor(seconds / 60);
+        var secs = seconds % 60;
+        minutes = Math.max(0, minutes);
+        secs = Math.max(0, secs);
+        return minutes + ":" + (secs < 10 ? '0' : '') + secs;
+    }
+
+    // Variables to store time remaining
+    var yourTimeRemaining = 0;
+    var opponentTimeRemaining = 0;
+
+    // Function to update time display
+    function updateTimeDisplay() {
+        var yourTimeElem = document.getElementById('your-time');
+        var opponentTimeElem = document.getElementById('opponent-time');
+        yourTimeElem.innerText = formatTime(yourTimeRemaining);
+        opponentTimeElem.innerText = formatTime(opponentTimeRemaining);
+        
+        // Change color if time is below 30 seconds
+        yourTimeElem.style.color = yourTimeRemaining <= 30 ? 'red' : 'black';
+        opponentTimeElem.style.color = opponentTimeRemaining <= 30 ? 'red' : 'black';
+    }
+
+    // Function to fetch time remaining from server
+    function fetchTimeRemaining() {
+        $.ajax({
+            url: '/get_time_remaining',
+            method: 'POST',
+            data: { game_no: game_no },
+            success: function(data) {
+                if (data.game_over) {
+                    // Determine the winner based on the result string
+                    var winner = '';
+                    if (data.result.toLowerCase().includes('white')) {
+                        winner = 'White';
+                    } else if (data.result.toLowerCase().includes('black')) {
+                        winner = 'Black';
+                    } else {
+                        winner = 'Unknown';
+                    }
+
+                    // Determine player's color based on handle
+                    var playerColorParam = playerColor; // 'W' or 'B'
+
+                    // Redirect to gameover.html with query parameters using template literals
+                    window.location.href = `/gameover.html?winner=${winner}&result=${encodeURIComponent(data.result)}&player_color=${playerColorParam}`;
+                } else {
+                    // Update opponent's time only
+                    var fetchedOpponentTime = 0;
+                    if (playerColor === 'W') {
+                        fetchedOpponentTime = data.black_time;
+                    } else {
+                        fetchedOpponentTime = data.white_time;
+                    }
+
+                    // To prevent resetting the timer unexpectedly,
+                    // only update if the fetched time is less than the current time remaining.
+                    if (fetchedOpponentTime < opponentTimeRemaining) {
+                        opponentTimeRemaining = fetchedOpponentTime;
+                        updateTimeDisplay();
+                    }
+                }
+            },
+            error: function(xhr, status, error) {
+                console.error('Error fetching time remaining:', error);
+                // Optionally, display an error message to the user
+                document.getElementById('your-time').innerText = 'Error';
+                document.getElementById('opponent-time').innerText = 'Error';
+            }
+        });
+    }
+
+    // Initial fetch to set up the timers
+    $.ajax({
+        url: '/get_time_remaining',
+        method: 'POST',
+        data: { game_no: game_no },
+        success: function(data) {
+            if (data.game_over) {
+                // Determine the winner based on the result string
+                var winner = '';
+                if (data.result.toLowerCase().includes('white')) {
+                    winner = 'White';
+                } else if (data.result.toLowerCase().includes('black')) {
+                    winner = 'Black';
+                } else {
+                    winner = 'Unknown';
+                }
+
+                // Determine player's color based on handle
+                var playerColorParam = playerColor; // 'W' or 'B'
+
+                // Redirect to gameover.html with query parameters using template literals
+                window.location.href = `/gameover.html?winner=${winner}&result=${encodeURIComponent(data.result)}&player_color=${playerColorParam}`;
+            } else {
+                // Initialize yourTimeRemaining and opponentTimeRemaining
+                if (playerColor === 'W') {
+                    yourTimeRemaining = data.white_time;
+                    opponentTimeRemaining = data.black_time;
+                } else {
+                    yourTimeRemaining = data.black_time;
+                    opponentTimeRemaining = data.white_time;
+                }
+
+                updateTimeDisplay();
+            }
+        },
+        error: function(xhr, status, error) {
+            console.error('Error fetching initial time remaining:', error);
+            document.getElementById('your-time').innerText = 'Error';
+            document.getElementById('opponent-time').innerText = 'Error';
+        }
+    });
+
+    // Start the countdown
+    var timeInterval = setInterval(function() {
+        // Decrease your time by 1 second
+        yourTimeRemaining--;
+        updateTimeDisplay();
+
+        // Check if your time has run out
+        if (yourTimeRemaining <= 0) {
+            clearInterval(timeInterval);
+            // Redirect to Game Over page indicating player's time ran out
+            var winner = (playerColor === 'W') ? 'Black' : 'White';
+            window.location.href = `/gameover.html?winner=${winner}&result=${encodeURIComponent('You have run out of time.')} &player_color=${playerColor}`;
+        }
+
+        // Fetch the latest time from the server every 5 seconds
+        if (yourTimeRemaining % 5 === 0) {
+            fetchTimeRemaining();
+        }
+
+        // Poll the server for new moves
+        $.ajax({
+            url: '/check_for_move',
+            method: 'POST',
+            data: { game_no: game_no, turn_no: turn_no },
+            success: function(data) {
+                if (data.new_move) {
+                    // New move is available, redirect to player.html with updated EFEN
+                    window.location.href = `/player.html?game_no=${game_no}&turn_no=${parseInt(turn_no) + 1}&handle=${handle}`;
+                }
+            },
+            error: function(xhr, status, error) {
+                console.error('Error checking for new move:', error);
+            }
+        });
+    }, 1000); // Run every 1000 milliseconds (1 second)
+
+    document.getElementById('done-button').addEventListener('click', function() {
+        // Get the updated piece placement
+        var piecePlacement = board.fen(); // This gives you the piece placement
+
+        // Construct the standard FEN string using template literals
+        var standardFen = `${piecePlacement} ${active_color} ${castling} ${enpassant} ${halfmove_clock} ${fullmove_number}`;
+
+        // Construct the EFEN string by adding EFEN fields
+        var efen = `${standardFen} ${white_prisoners} ${black_prisoners} ${white_holdable} ${black_holdable}`;
+
+        // Prepare the data to send
+        var dataToSend = {
+            game_no: game_no,
+            turn_no: turn_no,
+            handle: handle,
+            efen: efen
+        };
+
+        // Send the data via POST to the server
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', '/submit_move', true);
+        xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState === XMLHttpRequest.DONE) {
+                if (xhr.status === 200) {
+                    // Move submitted successfully
+                    // Redirect to opponent.html using template literals
+                    window.location.href = `/opponent.html?game_no=${game_no}&turn_no=${parseInt(turn_no) + 1}&handle=${handle}`;
+                } else {
+                    // Handle error
+                    alert('Error submitting move: ' + xhr.responseText);
+                    // Optionally, display in-page error message instead of alert
+                    // var errorMsg = document.getElementById('error-message');
+                    // errorMsg.innerText = 'Error submitting move: ' + xhr.responseText;
+                    // errorMsg.style.display = 'block';
+                }
+            }
+        };
+        // Encode data as URL-encoded string
+        var encodedData = Object.keys(dataToSend)
+            .map(key => encodeURIComponent(key) + '=' + encodeURIComponent(dataToSend[key]))
+            .join('&');
+        xhr.send(encodedData);
+    });
+</script>
+</body>
+</html>
