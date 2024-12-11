@@ -20,7 +20,7 @@ from db import (
 
 
 # Add a constant global variable for game time
-GAME_TIME = 300 
+GAME_TIME = 300
 
 # Ensure the tables are created
 create_tables()
